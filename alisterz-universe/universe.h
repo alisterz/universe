@@ -19,6 +19,12 @@
 #include <algorithm>
 #include <iterator>
 #include <pthread.h>
+
+//include sockets header files
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+
 #define GRAPHICS 1
 
 // handy STL iterator macro pair. Use FOR_EACH(I,C){ } to get an iterator I to
@@ -117,8 +123,21 @@ namespace Uni
 	 //new added static variables.
 	 static int counter;
 	 static std::vector< std::vector<int> > sections; 
-	static int threadNumber;
-	static int threadRatio;
+	 static int threadNumber;
+	 static int threadRatio;
+	 
+	 //sockets
+	 static struct sockaddr_in server_addr; //server address
+     static struct hostent *server; //
+	 static int clientNumber; //number of client expected.
+	static int server_socketfd;
+	static int server_newsocketfd;
+	static int server_portno;
+	static int server_clilen;
+	static int client_socketfd;
+	static int client_newsocketfd;
+	static int client_portno;
+	static int client_clilen;
 
 #if GRAPHICS
 	 /** render all robots in OpenGL */
@@ -135,7 +154,7 @@ namespace Uni
 
 	 //new added. non static variables
 	 int robotNumber;
-	int robotSection;
+	 int robotSection;
 	 
 	 // create a new robot with these parameters
 	 Robot( const Pose& pose, const Color& color );
@@ -157,5 +176,7 @@ namespace Uni
 	 int getRobotNumber();
 	 void removeRobot(int s, int r);
 	 static void *threadUpdatePixel(void *threadid);
+	
+	 //socket stuff
   };	
 }; // namespace Uni

@@ -39,6 +39,17 @@ int Robot::threadRatio(population_size/threadNumber);
 //new added initialization
 int Robot::counter = 0;
 std::vector< std::vector<int> > Robot::sections(10, std::vector<int>(0,0));
+sockaddr_in Robot::server_addr;
+hostent* Robot::server;
+int Robot::server_socketfd(0);
+int Robot::server_newsocketfd(0);
+int Robot::server_portno(60225);
+int Robot::server_clilen(0);
+int Robot::client_socketfd(0);
+int Robot::client_newsocketfd(0);
+int Robot::client_portno(60225);
+int Robot::client_clilen(0);
+
 
 char usage[] = "Universe understands these command line arguments:\n"
  "  -? : Prints this helpful message.\n"
@@ -50,7 +61,9 @@ char usage[] = "Universe understands these command line arguments:\n"
  "  -s <float> : sets the side length of the (square) world.\n"
  "  -u <int> : sets the number of updates to run before quitting.\n"
  "  -w <int> : sets the initial size of the window, in pixels.\n"
- "  -z <int> : sets the number of milliseconds to sleep between updates.\n";
+ "  -z <int> : sets the number of milliseconds to sleep between updates.\n"
+ "  -t Enable server mode. Accepting incoming client connection.\n"
+ "  -i <char []> : Enable client mode. Connect to the server provided.\n";
 
 #if GRAPHICS
 // GLUT callback functions ---------------------------------------------------
@@ -122,6 +135,45 @@ void Robot::Init( int argc, char** argv )
 	while( ( c = getopt( argc, argv, "?dp:s:f:r:c:u:z:w:")) != -1 )
 		switch( c )
 			{
+			case 't':
+				server_socketfd = socket(AF_INET, SOCK_STREAM,0);
+				server_addr.sin_family = AF_INET;
+				server_addr.sin_addr.s_addr = INADDR_ANY;
+				server_addr.sin_port = htons(server_portno);
+				if(bind(server_socketfd,(struct sockaddr *) &server_addr,
+				sizeof(server_addr))<0)
+				{
+					printf("Server: ERROR on binding.\n");
+				}
+				break;
+			case 'i':
+				if(server_socketfd == 0){
+					printf("Client: Universe in server mode, cannot connect to other Universe.\n");
+				}
+				else
+				{
+					client_socketfd = socket(AF_INET, SOCK_STREAM,0);
+					if(client_socketfd<0)
+					{
+						printf("Client: ERROR on opening port.\n");
+					}
+					server = gethostbyname("localhost");
+					if(server == NULL)
+					{
+						printf("Client: ERROR on connecting server.\n");
+						exit(0);
+					}
+					bzero((char *) &server_addr, sizeof(server_addr));
+					server_addr.sin_family = AF_INET;
+					bcopy((char *)server->h_addr,(char *)&server_addr.sin_addr.s_addr,
+						server->h_length);
+					server_addr.sin_port=htons(client_portno);
+					if(connect(client_socketfd,&server_addr,sizeof(server_addr))<0)
+					{
+						printf("Client: ERROR on connecting");
+					}
+				}
+			break;
 			case 'p': 
 				population_size = atoi( optarg );
 				printf( "[Uni] population_size: %d\n", population_size );
@@ -334,6 +386,9 @@ void Robot::UpdateAll()
 {
 	bool print = false;
   // if we've done enough updates, exit the program
+  if(client_socketfd!=0){
+	
+  }
   if( updates_max > 0 && updates > updates_max )
   {
 	if(print)
