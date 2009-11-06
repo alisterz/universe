@@ -118,7 +118,7 @@ void Robot::Init( int argc, char** argv )
 	
   // parse arguments to configure Robot static members
 	int c;
-	printf("[Uni] thread number: %d\n",thread_no);
+	printf("[Uni] thread number: %d\n",threadNumber);
 	while( ( c = getopt( argc, argv, "?dp:s:f:r:c:u:z:w:")) != -1 )
 		switch( c )
 			{
@@ -332,7 +332,7 @@ void Robot::UpdatePose()
 
 void Robot::UpdateAll()
 {
-	bool print = true;
+	bool print = false;
   // if we've done enough updates, exit the program
   if( updates_max > 0 && updates > updates_max )
   {
