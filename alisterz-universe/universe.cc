@@ -16,7 +16,7 @@ using namespace Uni;
 const char* PROGNAME = "universe";
 
 #if GRAPHICS
-#include <glut/glut.h> // OS X users need <glut/glut.h> instead
+#include <GL/glut.h> // OS X users need <glut/glut.h> instead
 #endif
 
 // initialize static members
@@ -41,11 +41,11 @@ int Robot::counter = 0;
 std::vector< std::vector<int> > Robot::sections(10, std::vector<int>(0,0));
 sockaddr_in Robot::server_addr;
 hostent* Robot::server;
-int Robot::server_socketfd(0);
+int Robot::server_socketfd(-1);
 int Robot::server_newsocketfd(0);
 int Robot::server_portno(60225);
 int Robot::server_clilen(0);
-int Robot::client_socketfd(0);
+int Robot::client_socketfd(-1);
 int Robot::client_newsocketfd(0);
 int Robot::client_portno(60225);
 int Robot::client_clilen(0);
@@ -62,7 +62,7 @@ char usage[] = "Universe understands these command line arguments:\n"
  "  -u <int> : sets the number of updates to run before quitting.\n"
  "  -w <int> : sets the initial size of the window, in pixels.\n"
  "  -z <int> : sets the number of milliseconds to sleep between updates.\n"
- "  -t Enable server mode. Accepting incoming client connection.\n"
+ "  -t <int> : Enable server mode. sets the number of clients\n"
  "  -i <char []> : Enable client mode. Connect to the server provided.\n";
 
 #if GRAPHICS
@@ -132,48 +132,10 @@ void Robot::Init( int argc, char** argv )
   // parse arguments to configure Robot static members
 	int c;
 	printf("[Uni] thread number: %d\n",threadNumber);
-	while( ( c = getopt( argc, argv, "?dp:s:f:r:c:u:z:w:")) != -1 )
+	while( ( c = getopt( argc, argv, "?dp:s:f:r:c:u:z:w:i:t:")) != -1 )
 		switch( c )
 			{
-			case 't':
-				server_socketfd = socket(AF_INET, SOCK_STREAM,0);
-				server_addr.sin_family = AF_INET;
-				server_addr.sin_addr.s_addr = INADDR_ANY;
-				server_addr.sin_port = htons(server_portno);
-				if(bind(server_socketfd,(struct sockaddr *) &server_addr,
-				sizeof(server_addr))<0)
-				{
-					printf("Server: ERROR on binding.\n");
-				}
-				break;
-			case 'i':
-				if(server_socketfd == 0){
-					printf("Client: Universe in server mode, cannot connect to other Universe.\n");
-				}
-				else
-				{
-					client_socketfd = socket(AF_INET, SOCK_STREAM,0);
-					if(client_socketfd<0)
-					{
-						printf("Client: ERROR on opening port.\n");
-					}
-					server = gethostbyname("localhost");
-					if(server == NULL)
-					{
-						printf("Client: ERROR on connecting server.\n");
-						exit(0);
-					}
-					bzero((char *) &server_addr, sizeof(server_addr));
-					server_addr.sin_family = AF_INET;
-					bcopy((char *)server->h_addr,(char *)&server_addr.sin_addr.s_addr,
-						server->h_length);
-					server_addr.sin_port=htons(client_portno);
-					if(connect(client_socketfd,&server_addr,sizeof(server_addr))<0)
-					{
-						printf("Client: ERROR on connecting");
-					}
-				}
-			break;
+			
 			case 'p': 
 				population_size = atoi( optarg );
 				printf( "[Uni] population_size: %d\n", population_size );
@@ -199,7 +161,7 @@ void Robot::Init( int argc, char** argv )
 				printf( "[Uni] pixel_count: %d\n", pixel_count );
 				break;
 				
-      		case 'u':
+      			case 'u':
 				updates_max = atol( optarg );
 				printf( "[Uni] updates_max: %lu\n", (long unsigned)updates_max );
 				break;
@@ -222,6 +184,54 @@ void Robot::Init( int argc, char** argv )
 			  puts( usage );
 			  exit(0); // ok
 			  break;
+			case 't':
+				printf("Server\n");
+				server_socketfd = socket(AF_INET, SOCK_STREAM,0);
+				server_addr.sin_family = AF_INET;
+				server_addr.sin_addr.s_addr = INADDR_ANY;
+				server_addr.sin_port = htons(server_portno);
+				if(bind(server_socketfd,(struct sockaddr *) &server_addr,
+				sizeof(server_addr))<0)
+				{
+					printf("Server: ERROR on binding.\n");
+				}
+				
+				//loop, accept connections until max client reached.
+				listen(server_socketfd,5);
+				server_clilen = sizeof(server_addr)
+				server_newsocketfd = accept(server_socketfd,(struct sockaddr *)&
+				
+			
+				printf("Server Socket FD:%d\n",server_socketfd);
+				break;
+			case 'i':
+				printf("Client %d \n",atoi(optarg));
+				if(server_socketfd >= 0){
+					printf("Client: Universe in server mode, cannot connect to other Universe.\n");
+				}
+				else
+				{
+					client_socketfd = socket(AF_INET, SOCK_STREAM,0);
+					if(client_socketfd<0)
+					{
+						printf("Client: ERROR on opening port.\n");
+					}
+					server = gethostbyname(optarg);
+					if(server == NULL)
+					{
+						printf("Client: ERROR on connecting server.\n");
+						exit(0);
+					}
+					bzero((char *) &server_addr, sizeof(server_addr));
+					server_addr.sin_family = AF_INET;
+					server_addr.sin_addr = *((struct in_addr *)server->h_addr);
+					server_addr.sin_port=htons(client_portno);
+					if(connect(client_socketfd,(struct sockaddr *)&server_addr,sizeof(server_addr))<0)
+					{
+						printf("Client: ERROR on connecting \n");
+					}
+				}
+			break;
 
 			default:
 				fprintf( stderr, "[Uni] Option parse error.\n" );
@@ -229,6 +239,10 @@ void Robot::Init( int argc, char** argv )
 				exit(-1); // error
 			}
 			threadRatio = population_size/threadNumber;
+			if(server_socketfd >0)
+			{
+				
+			}
 	
 #if GRAPHICS
   // initialize opengl graphics
@@ -535,10 +549,10 @@ void *Robot::threadUpdatePixel(void *ptr)
 	/*(int)ptr;
 	int a = id;*/
 //	printf("Hello World From %d. ",(int)ptr);
-	int left = threadRatio * (int)ptr;
-    int right = threadRatio * ((int)ptr+1);
+	long int left = (long int) threadRatio * (long int)ptr;
+    long int right = (long int) threadRatio * ((long int)ptr+1);
 //	printf("My range is %d to %d\n",left,right);
-	for(int i=left;i<right;i++)
+	for(long int i=left;i<right;i++)
 	{
 //		printf("Thread %d: Updating Robot No[%d]\n",(int)ptr,i);
 		population[i]->UpdatePixels();

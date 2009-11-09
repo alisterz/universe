@@ -3,6 +3,9 @@
    version 2
    Richard Vaughan  
 ****/
+/****
+	alisterz version
+****/
 
 #include <assert.h>
 #include <unistd.h>
@@ -30,10 +33,23 @@ bool Robot::paused( false );
 int Robot::winsize( 600 );
 int Robot::displaylist(0);
 bool Robot::show_data( true );
+int Robot::threadNumber(4);
+int Robot::threadRatio(population_size/threadNumber);
 
 //new added initialization
 int Robot::counter = 0;
 std::vector< std::vector<int> > Robot::sections(10, std::vector<int>(0,0));
+sockaddr_in Robot::server_addr;
+hostent* Robot::server;
+int Robot::server_socketfd(-1);
+int Robot::server_newsocketfd(0);
+int Robot::server_portno(60225);
+int Robot::server_clilen(0);
+int Robot::client_socketfd(-1);
+int Robot::client_newsocketfd(0);
+int Robot::client_portno(60225);
+int Robot::client_clilen(0);
+
 
 char usage[] = "Universe understands these command line arguments:\n"
  "  -? : Prints this helpful message.\n"
@@ -45,7 +61,9 @@ char usage[] = "Universe understands these command line arguments:\n"
  "  -s <float> : sets the side length of the (square) world.\n"
  "  -u <int> : sets the number of updates to run before quitting.\n"
  "  -w <int> : sets the initial size of the window, in pixels.\n"
- "  -z <int> : sets the number of milliseconds to sleep between updates.\n";
+ "  -z <int> : sets the number of milliseconds to sleep between updates.\n"
+ "  -t <int> : Enable server mode. sets the number of clients\n"
+ "  -i <char []> : Enable client mode. Connect to the server provided.\n";
 
 #if GRAPHICS
 // GLUT callback functions ---------------------------------------------------
@@ -100,7 +118,6 @@ Robot::Robot( const Pose& pose,
   // add myself to the static vector of all robots
   population.push_back( this );
   pixels.resize( pixel_count );
-
   robotNumber = counter;
   counter++;
   robotSection = (int)(pose.x*10);
@@ -114,9 +131,11 @@ void Robot::Init( int argc, char** argv )
 	
   // parse arguments to configure Robot static members
 	int c;
-	while( ( c = getopt( argc, argv, "?dp:s:f:r:c:u:z:w:")) != -1 )
+	printf("[Uni] thread number: %d\n",threadNumber);
+	while( ( c = getopt( argc, argv, "?dp:s:f:r:c:u:z:w:i:t:")) != -1 )
 		switch( c )
 			{
+			
 			case 'p': 
 				population_size = atoi( optarg );
 				printf( "[Uni] population_size: %d\n", population_size );
@@ -142,7 +161,7 @@ void Robot::Init( int argc, char** argv )
 				printf( "[Uni] pixel_count: %d\n", pixel_count );
 				break;
 				
-      case 'u':
+      			case 'u':
 				updates_max = atol( optarg );
 				printf( "[Uni] updates_max: %lu\n", (long unsigned)updates_max );
 				break;
@@ -165,11 +184,59 @@ void Robot::Init( int argc, char** argv )
 			  puts( usage );
 			  exit(0); // ok
 			  break;
+			case 't':
+				printf("Server\n");
+				server_socketfd = socket(AF_INET, SOCK_STREAM,0);
+				server_addr.sin_family = AF_INET;
+				server_addr.sin_addr.s_addr = INADDR_ANY;
+				server_addr.sin_port = htons(server_portno);
+				if(bind(server_socketfd,(struct sockaddr *) &server_addr,
+				sizeof(server_addr))<0)
+				{
+					printf("Server: ERROR on binding.\n");
+				}
+				listen(server_socketfd,5);
+			
+				printf("Server Socket FD:%d\n",server_socketfd);
+				break;
+			case 'i':
+				printf("Client %d \n",atoi(optarg));
+				if(server_socketfd >= 0){
+					printf("Client: Universe in server mode, cannot connect to other Universe.\n");
+				}
+				else
+				{
+					client_socketfd = socket(AF_INET, SOCK_STREAM,0);
+					if(client_socketfd<0)
+					{
+						printf("Client: ERROR on opening port.\n");
+					}
+					server = gethostbyname(optarg);
+					if(server == NULL)
+					{
+						printf("Client: ERROR on connecting server.\n");
+						exit(0);
+					}
+					bzero((char *) &server_addr, sizeof(server_addr));
+					server_addr.sin_family = AF_INET;
+					server_addr.sin_addr = *((struct in_addr *)server->h_addr);
+					server_addr.sin_port=htons(client_portno);
+					if(connect(client_socketfd,(struct sockaddr *)&server_addr,sizeof(server_addr))<0)
+					{
+						printf("Client: ERROR on connecting \n");
+					}
+				}
+			break;
 
 			default:
 				fprintf( stderr, "[Uni] Option parse error.\n" );
 				puts( usage );
 				exit(-1); // error
+			}
+			threadRatio = population_size/threadNumber;
+			if(server_socketfd >0)
+			{
+				
 			}
 	
 #if GRAPHICS
@@ -229,81 +296,79 @@ void Robot::UpdatePixels()
   
   // check every robot in the world to see if it is detected
 
-  std::vector<Robot*> neighbors;
-  int* range = new int[3];
-  range[0] = robotSection -1;
+  //std::vector<Robot*> neighbors;
+  int* range = new int[2];
+  range[0] = robotSection-1;
   range[1] = robotSection;
   range[2] = robotSection +1;
   if(range[0] <0)
 	range[0]=9;
   if(range[2]>9)
 	range[2]=0;
-  for(int i=0; i<3; i++)
+
+  for(int i=0; i<=2; i++)
   {
 	for(std::vector<int>::iterator it = sections[range[i]].begin(); it!=sections[range[i]].end(); ++it)
 	{
-		neighbors.push_back(population[*it]);
+		Robot* other = population[*it];
+
+	      // discard if it's the same robot
+	      if( other == this )
+					continue;
+
+	      // discard if it's out of range. We put off computing the
+	      // hypotenuse as long as we can, as it's relatively expensive.
+
+	      double dx = other->pose.x - pose.x;
+
+			// wrap around torus
+			if( dx > halfworld )
+			  dx -= worldsize;
+			else if( dx < -halfworld )
+			  dx += worldsize;
+
+			if( fabs(dx) > Robot::range )
+			  continue; // out of range
+
+	      double dy = other->pose.y - pose.y;
+
+			// wrap around torus
+			if( dy > halfworld )
+			  dy -= worldsize;
+			else if( dy < -halfworld )
+			  dy += worldsize;
+
+			if( fabs(dy) > Robot::range )
+			  continue; // out of range
+
+	      double range = hypot( dx, dy );
+	      if( range > Robot::range ) 
+					continue; 
+
+	      // discard if it's out of field of view 
+	      double absolute_heading = atan2( dy, dx );
+	      double relative_heading = AngleNormalize((absolute_heading - pose.a) );
+	      if( fabs(relative_heading) > fov/2.0   ) 
+					continue; 
+
+	      // find which pixel it falls in 
+	      int pixel = floor( relative_heading / radians_per_pixel );
+	      pixel += pixel_count / 2;
+	      pixel %= pixel_count;
+
+	      assert( pixel >= 0 );
+	      assert( pixel < (int)pixel_count );
+
+	      // discard if we've seen something closer in this pixel already.
+	      //if(pixels[pixel].range == range)
+			//printf("Range is same");
+		  if( pixels[pixel].range < range) 
+			  continue;
+	      // if we made it here, we see this other robot in this pixel.
+	      pixels[pixel].range = range;
+	      pixels[pixel].robot = other;
 	}
   }
-  FOR_EACH( it, neighbors)
-    {
-      Robot* other = *it;
-      
-      // discard if it's the same robot
-      if( other == this )
-				continue;
-			
-      // discard if it's out of range. We put off computing the
-      // hypotenuse as long as we can, as it's relatively expensive.
-		
-      double dx = other->pose.x - pose.x;
-
-		// wrap around torus
-		if( dx > halfworld )
-		  dx -= worldsize;
-		else if( dx < -halfworld )
-		  dx += worldsize;
-		
-		if( fabs(dx) > Robot::range )
-		  continue; // out of range
-		
-      double dy = other->pose.y - pose.y;
-
-		// wrap around torus
-		if( dy > halfworld )
-		  dy -= worldsize;
-		else if( dy < -halfworld )
-		  dy += worldsize;
-
-		if( fabs(dy) > Robot::range )
-		  continue; // out of range
-		
-      double range = hypot( dx, dy );
-      if( range > Robot::range ) 
-				continue; 
-			
-      // discard if it's out of field of view 
-      double absolute_heading = atan2( dy, dx );
-      double relative_heading = AngleNormalize((absolute_heading - pose.a) );
-      if( fabs(relative_heading) > fov/2.0   ) 
-				continue; 
-			
-      // find which pixel it falls in 
-      int pixel = floor( relative_heading / radians_per_pixel );
-      pixel += pixel_count / 2;
-      pixel %= pixel_count;
-
-      assert( pixel >= 0 );
-      assert( pixel < (int)pixel_count );
-
-      // discard if we've seen something closer in this pixel already.
-      if( pixels[pixel].range < range) 
-		  continue;
-		
-      // if we made it here, we see this other robot in this pixel.
-      pixels[pixel].range = range;
-      pixels[pixel].robot = other;
-    }	
 }
 
 void Robot::UpdatePose()
@@ -328,17 +393,52 @@ void Robot::UpdatePose()
 
 void Robot::UpdateAll()
 {
+	bool print = false;
   // if we've done enough updates, exit the program
+  if(client_socketfd!=0){
+	
+  }
   if( updates_max > 0 && updates > updates_max )
-	 exit(1);
+  {
+	if(print)
+	{
+		printf("\n**********************************\n\n");
+			printf("Final Robot Positions \n\n");
+			printf("Thread No. : %d\n",threadNumber);
+			printf("THread Ratio : %d\n",threadRatio);
+			FOR_EACH(r,population){
+				printf("Robot Number : %d\n",(*r)->getRobotNumber());
+				printf("Robot X : %e\n", (*r)->pose.x);
+				printf("Robot Y: %e\n", (*r)->pose.y);
+				//printf("Robot Section: %d\n", (*r)->getRobotSection());
+				printf("\n");
+			} 
+		
+	}
+	exit(1);
+  }
   
   if( ! Robot::paused )
 		{
+			
 			FOR_EACH( r, population )
 				(*r)->UpdatePose();
-
-			FOR_EACH( r, population )
-				(*r)->UpdatePixels();
+			pthread_t threads[threadNumber];
+			int rc;
+			int i;
+			
+			//update pixel
+			for(i=0;i<threadNumber;i++)
+			{
+				rc = pthread_create(&threads[i], NULL, threadUpdatePixel, (void *)i);
+			}
+			for(i=0;i<threadNumber;i++)
+			{
+				rc = pthread_join(threads[i],NULL);
+			}
+			
+			//FOR_EACH(r, population)
+			//	(*r)->UpdatePixels();
 
 			FOR_EACH( r, population )
 				(*r)->Controller();
@@ -430,11 +530,29 @@ void Robot::removeRobot(int s, int r)
 		sections[s].erase(it);
 		//printf("Robot Number %d is removed \n", r);
 	}
-	//else
+//	else
 		//printf("Robot is not found! \n");
 }
 
 int Robot::getRobotNumber()
 {
 	return robotNumber;
+}
+
+void *Robot::threadUpdatePixel(void *ptr)
+{
+	/*(int)ptr;
+	int a = id;*/
+//	printf("Hello World From %d. ",(int)ptr);
+	long int left = (long int) threadRatio * (long int)ptr;
+    long int right = (long int) threadRatio * ((long int)ptr+1);
+//	printf("My range is %d to %d\n",left,right);
+	for(long int i=left;i<right;i++)
+	{
+//		printf("Thread %d: Updating Robot No[%d]\n",(int)ptr,i);
+		population[i]->UpdatePixels();
+	}
+	//printf("Hello World From %d. My range is %d to %d\n",(int)ptr,left, right);
+	//printf("Thread %d finished.\n",(int)ptr);
+	pthread_exit(NULL);
 }
