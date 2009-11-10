@@ -16,7 +16,7 @@ using namespace Uni;
 const char* PROGNAME = "universe";
 
 #if GRAPHICS
-#include <GL/glut.h> // OS X users need <glut/glut.h> instead
+#include <glut/glut.h> // OS X users need <glut/glut.h> instead
 #endif
 
 // initialize static members
@@ -40,6 +40,7 @@ int Robot::threadRatio(population_size/threadNumber);
 int Robot::counter = 0;
 std::vector< std::vector<int> > Robot::sections(10, std::vector<int>(0,0));
 sockaddr_in Robot::server_addr;
+sockaddr_in Robot::cli_addr;
 hostent* Robot::server;
 int Robot::server_socketfd(-1);
 int Robot::server_newsocketfd(0);
@@ -49,6 +50,7 @@ int Robot::client_socketfd(-1);
 int Robot::client_newsocketfd(0);
 int Robot::client_portno(60225);
 int Robot::client_clilen(0);
+int Robot::client_id(0);
 
 
 char usage[] = "Universe understands these command line arguments:\n"
@@ -198,13 +200,20 @@ void Robot::Init( int argc, char** argv )
 				
 				//loop, accept connections until max client reached.
 				listen(server_socketfd,5);
-				server_clilen = sizeof(server_addr)
-				server_newsocketfd = accept(server_socketfd,(struct sockaddr *)&
-				
+				printf("Waiting for Client Connection....\n");
+				server_clilen = sizeof(cli_addr);
+				server_newsocketfd = accept(server_socketfd,(struct sockaddr *) &cli_addr, (socklen_t *) &server_clilen);
+				client_id = 0;
+				/*char buffer[1024];
+				int n;
+				n = read(server_newsocketfd,buffer,sizeof(buffer));
+				printf("Client: %s\n",buffer);
+				n = write(server_newsocketfd,"Hi!",3);
 			
-				printf("Server Socket FD:%d\n",server_socketfd);
+				printf("Server Socket FD:%d\n",server_socketfd);*/
 				break;
 			case 'i':
+			client_id = 1;
 				printf("Client %d \n",atoi(optarg));
 				if(server_socketfd >= 0){
 					printf("Client: Universe in server mode, cannot connect to other Universe.\n");
@@ -230,6 +239,13 @@ void Robot::Init( int argc, char** argv )
 					{
 						printf("Client: ERROR on connecting \n");
 					}
+					/*printf("Please enter your message:");
+					char buffer[1024];
+					bzero(buffer,1024);
+					fgets(buffer,1023,stdin);
+					n = write(client_socketfd,buffer,1023);
+					n = read(client_socketfd,buffer,1023);
+					printf("Server: %s\n",buffer);*/
 				}
 			break;
 
@@ -239,11 +255,6 @@ void Robot::Init( int argc, char** argv )
 				exit(-1); // error
 			}
 			threadRatio = population_size/threadNumber;
-			if(server_socketfd >0)
-			{
-				
-			}
-	
 #if GRAPHICS
   // initialize opengl graphics
   glutInit( &argc, argv );
@@ -394,15 +405,32 @@ void Robot::UpdatePose()
 	robotSection = tmp_section;
 	sections[robotSection].push_back(robotNumber);
   }
+  char msg[1024];
+double doubleMsg[4];
+doubleMsg[0]=(double)this->getRobotNumber();
+doubleMsg[1]=pose.x;
+doubleMsg[2]=pose.y;
+doubleMsg[3]=pose.a;
+  int n;
+  if(client_id == 0){
+//	bzero(msg,1024);
+	//sprintf(msg, "%d %.150f %.150f %.150f",this->getRobotNumber(),pose.x,pose.y,pose.a);
+	//printf("Server: %s",msg);
+	n = write(server_newsocketfd,doubleMsg,4*sizeof(double));
+  }
+  else{
+//	bzero(msg,1024);
+//	sprintf(msg, "%d %.150f %.150f %.150f",this->getRobotNumber(),pose.x,pose.y,pose.a);
+//	printf("Client: %s",msg);
+	n = write(client_socketfd,doubleMsg,4*sizeof(double));
+ }
+//printf("Buffer Char Length: %d\n",(int)strlen(msg));
 }
 
 void Robot::UpdateAll()
 {
-	bool print = false;
+	bool print = true;
   // if we've done enough updates, exit the program
-  if(client_socketfd!=0){
-	
-  }
   if( updates_max > 0 && updates > updates_max )
   {
 	if(print)
@@ -426,13 +454,14 @@ void Robot::UpdateAll()
   if( ! Robot::paused )
 		{
 			
-			FOR_EACH( r, population )
-				(*r)->UpdatePose();
-			pthread_t threads[threadNumber];
-			int rc;
-			int i;
+			//FOR_EACH( r, population )
+			//	(*r)->UpdatePose();
+			//pthread_t threads[threadNumber];
+			//int rc;
+			//int i;
 			
-			//update pixel
+			//update pixel with threads
+			/*
 			for(i=0;i<threadNumber;i++)
 			{
 				rc = pthread_create(&threads[i], NULL, threadUpdatePixel, (void *)i);
@@ -440,13 +469,87 @@ void Robot::UpdateAll()
 			for(i=0;i<threadNumber;i++)
 			{
 				rc = pthread_join(threads[i],NULL);
+			}*/
+		int bound_min = 0;
+		int bound_max = population_size;
+		if(client_id == 0){
+			bound_max = population_size/2;
+		}
+		if(client_id == 1){
+			bound_min = population_size/2;
+		}
+		//printf("Bound Min: %d \n",bound_min);
+		//printf("Bound Max: %d \n",bound_max);
+		//printf("Running.\n");
+		int p = (int) population_size;
+		
+		for(int i = bound_min;i<bound_max;i++)
+		{
+			population[i]->UpdatePose();
+		}
+		int counter=0;
+		int diff = bound_max-bound_min;
+		while(counter<p-diff)
+		{
+			double x,y,a;
+			double doubleMsg[4];
+			int r;
+			if(client_id == 0){
+				read(server_newsocketfd,doubleMsg,4*sizeof(double));
 			}
-			
-			//FOR_EACH(r, population)
-			//	(*r)->UpdatePixels();
-
-			FOR_EACH( r, population )
-				(*r)->Controller();
+			else
+			{
+				read(client_socketfd,doubleMsg,4*sizeof(double));
+			}
+			r = (int)doubleMsg[0];
+			x = doubleMsg[1];
+			y = doubleMsg[2];
+			a = doubleMsg[3];
+			/*
+			int r;
+			char msg[1024];
+			bzero(msg,1024);
+			char *endr;
+			char *endx;
+			char *endy;
+			if(client_id ==0){
+				read(server_newsocketfd,msg,1023);
+				//printf("Server: %s \n",msg);
+				r = (int)strtod(msg,&endr);
+				x = strtod(endr,&endx);
+				//read(server_newsocketfd,msg,1023);
+				y = strtod(endx,&endy);
+				//read(server_newsocketfd,msg,1023);
+				a = strtod(endy,NULL);
+			}
+			else{
+				read(client_socketfd,msg,1023);
+				//printf("Client : %s \n",msg);
+				r = (int)strtod(msg,&endr);
+				x = strtod(endr,&endx);
+				//read(client_socketfd,msg,1023);
+				y = strtod(endx,&endy);
+				//read(client_socketfd,msg,1023);
+				a = strtod(endy,NULL);
+			}*/
+			population[r]->pose.x = x;
+			population[r]->pose.y = y;
+			population[r]->pose.a = a;
+			printf("Robot : %d \nX: %e\nY:%e\na:%ef\n",r,x,y,a);
+			//printf("Robot: %d\n",r);
+			counter++;
+		}
+		
+		//update pixels
+		for(int i = bound_min;i<bound_max;i++){
+			//printf("Robot: %d\n",population[i]->getRobotNumber());
+			population[i]->UpdatePixels();
+		}
+		
+		//update controllers
+			for(int i = bound_min;i<bound_max;i++){
+					population[i]->Controller();
+			}
 		}
 
   ++updates;

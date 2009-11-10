@@ -133,8 +133,10 @@ namespace Uni
 	 
 	 //sockets
 	 static struct sockaddr_in server_addr; //server address
+	static struct sockaddr_in cli_addr;
      static struct hostent *server; //
 	 static int clientNumber; //number of client expected.
+	static int client_id;
 	static int server_socketfd;
 	static int server_newsocketfd;
 	static int server_portno;
