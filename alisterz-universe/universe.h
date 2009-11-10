@@ -183,6 +183,8 @@ namespace Uni
 	 int getRobotNumber();
 	 void removeRobot(int s, int r);
 	 static void *threadUpdatePixel(void *threadid);
+	int getRobotSection();
+	void setRobotSection(int s);
 	
 	 //socket stuff
   };	

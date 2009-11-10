@@ -65,7 +65,7 @@ char usage[] = "Universe understands these command line arguments:\n"
  "  -w <int> : sets the initial size of the window, in pixels.\n"
  "  -z <int> : sets the number of milliseconds to sleep between updates.\n"
  "  -t <int> : Enable server mode. sets the number of clients\n"
- "  -i <char []> : Enable client mode. Connect to the server provided.\n";
+ "  -g <char []> : Enable client mode. Connect to the server provided.\n";
 
 #if GRAPHICS
 // GLUT callback functions ---------------------------------------------------
@@ -134,7 +134,7 @@ void Robot::Init( int argc, char** argv )
   // parse arguments to configure Robot static members
 	int c;
 	printf("[Uni] thread number: %d\n",threadNumber);
-	while( ( c = getopt( argc, argv, "?dp:s:f:r:c:u:z:w:i:t:")) != -1 )
+	while( ( c = getopt( argc, argv, "?dp:s:f:r:c:u:z:w:g:t:")) != -1 )
 		switch( c )
 			{
 			
@@ -212,7 +212,7 @@ void Robot::Init( int argc, char** argv )
 			
 				printf("Server Socket FD:%d\n",server_socketfd);*/
 				break;
-			case 'i':
+			case 'g':
 			client_id = 1;
 				printf("Client %d \n",atoi(optarg));
 				if(server_socketfd >= 0){
@@ -405,26 +405,21 @@ void Robot::UpdatePose()
 	robotSection = tmp_section;
 	sections[robotSection].push_back(robotNumber);
   }
-  char msg[1024];
-double doubleMsg[4];
-doubleMsg[0]=(double)this->getRobotNumber();
-doubleMsg[1]=pose.x;
-doubleMsg[2]=pose.y;
-doubleMsg[3]=pose.a;
+  //generate message for socket
+  double doubleMsg[4];
+  doubleMsg[0]=(double)this->getRobotNumber();
+  doubleMsg[1]=pose.x;
+  doubleMsg[2]=pose.y;
+  doubleMsg[3]=pose.a;
   int n;
-  if(client_id == 0){
-//	bzero(msg,1024);
-	//sprintf(msg, "%d %.150f %.150f %.150f",this->getRobotNumber(),pose.x,pose.y,pose.a);
-	//printf("Server: %s",msg);
+  if(client_id == 0)
+  {
 	n = write(server_newsocketfd,doubleMsg,4*sizeof(double));
   }
-  else{
-//	bzero(msg,1024);
-//	sprintf(msg, "%d %.150f %.150f %.150f",this->getRobotNumber(),pose.x,pose.y,pose.a);
-//	printf("Client: %s",msg);
+  else
+  { 
 	n = write(client_socketfd,doubleMsg,4*sizeof(double));
- }
-//printf("Buffer Char Length: %d\n",(int)strlen(msg));
+  } 
 }
 
 void Robot::UpdateAll()
@@ -502,54 +497,32 @@ void Robot::UpdateAll()
 				read(client_socketfd,doubleMsg,4*sizeof(double));
 			}
 			r = (int)doubleMsg[0];
-			x = doubleMsg[1];
-			y = doubleMsg[2];
-			a = doubleMsg[3];
-			/*
-			int r;
-			char msg[1024];
-			bzero(msg,1024);
-			char *endr;
-			char *endx;
-			char *endy;
-			if(client_id ==0){
-				read(server_newsocketfd,msg,1023);
-				//printf("Server: %s \n",msg);
-				r = (int)strtod(msg,&endr);
-				x = strtod(endr,&endx);
-				//read(server_newsocketfd,msg,1023);
-				y = strtod(endx,&endy);
-				//read(server_newsocketfd,msg,1023);
-				a = strtod(endy,NULL);
-			}
-			else{
-				read(client_socketfd,msg,1023);
-				//printf("Client : %s \n",msg);
-				r = (int)strtod(msg,&endr);
-				x = strtod(endr,&endx);
-				//read(client_socketfd,msg,1023);
-				y = strtod(endx,&endy);
-				//read(client_socketfd,msg,1023);
-				a = strtod(endy,NULL);
-			}*/
-			population[r]->pose.x = x;
-			population[r]->pose.y = y;
-			population[r]->pose.a = a;
-			printf("Robot : %d \nX: %e\nY:%e\na:%ef\n",r,x,y,a);
+			population[r]->pose.x = doubleMsg[1];
+			population[r]->pose.y = doubleMsg[2];
+			population[r]->pose.a = doubleMsg[3];
+			//printf("Robot : %d \nX: %e\nY:%e\na:%ef\n",r,x,y,a);
 			//printf("Robot: %d\n",r);
+			int tmp_section = (int)(doubleMsg[1]*10);
+			if(tmp_section!=population[r]->getRobotSection())
+			{
+				population[r]->removeRobot(population[r]->getRobotSection(),population[r]->getRobotNumber());
+				population[r]->setRobotSection(tmp_section);
+				sections[population[r]->getRobotSection()].push_back(population[r]->getRobotNumber());
+			  }
 			counter++;
 		}
-		
 		//update pixels
-		for(int i = bound_min;i<bound_max;i++){
+		for(int i = bound_min;i<bound_max;i++)
+		{
 			//printf("Robot: %d\n",population[i]->getRobotNumber());
 			population[i]->UpdatePixels();
 		}
-		
+
 		//update controllers
-			for(int i = bound_min;i<bound_max;i++){
-					population[i]->Controller();
-			}
+		for(int i = bound_min;i<bound_max;i++)
+		{
+			population[i]->Controller();
+		}
 		}
 
   ++updates;
@@ -663,4 +636,14 @@ void *Robot::threadUpdatePixel(void *ptr)
 	//printf("Hello World From %d. My range is %d to %d\n",(int)ptr,left, right);
 	//printf("Thread %d finished.\n",(int)ptr);
 	pthread_exit(NULL);
+}
+
+int Robot::getRobotSection()
+{
+	return robotSection;
+}
+
+void Robot::setRobotSection(int s)
+{
+	robotSection = s;
 }
