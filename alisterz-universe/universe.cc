@@ -38,7 +38,7 @@ int Robot::threadRatio(population_size/threadNumber);
 
 //new added initialization
 int Robot::counter = 0;
-std::vector< std::vector<int> > Robot::sections(10, std::vector<int>(0,0));
+std::vector< std::vector<int> > Robot::sections(1000, std::vector<int>(0,0));
 sockaddr_in Robot::server_addr;
 sockaddr_in Robot::cli_addr;
 hostent* Robot::server;
@@ -122,7 +122,8 @@ Robot::Robot( const Pose& pose,
   pixels.resize( pixel_count );
   robotNumber = counter;
   counter++;
-  robotSection = (int)(pose.x*10);
+printf("Robot Number:%d\nRobot X:%e\n",robotNumber,pose.x);
+  robotSection = (int)(pose.x*1000/worldsize);
   sections[robotSection].push_back(robotNumber);
 }
 
@@ -313,13 +314,16 @@ void Robot::UpdatePixels()
   // check every robot in the world to see if it is detected
 
   //std::vector<Robot*> neighbors;
+
+  //fix range issue.
+  int view_range = (int)(1000 * Robot::range)
   int* range = new int[2];
-  range[0] = robotSection-1;
+  range[0] = robotSection-;
   range[1] = robotSection;
-  range[2] = robotSection +1;
-  if(range[0] <0)
+  range[2] = robotSection +10;
+  if(range[0] < 0)
 	range[0]=9;
-  if(range[2]>9)
+  if(range[2]>999)
 	range[2]=0;
 
   for(int i=0; i<=2; i++)
@@ -398,7 +402,7 @@ void Robot::UpdatePose()
   pose.y = DistanceNormalize( pose.y + dy );
   pose.a = AngleNormalize( pose.a + da );
  
-  int tmp_section = (int)(pose.x*10);
+  int tmp_section = (int)(pose.x*1000/worldsize);
   if(tmp_section!=robotSection)
   {
 	removeRobot(robotSection,robotNumber);
@@ -411,14 +415,14 @@ void Robot::UpdatePose()
   doubleMsg[1]=pose.x;
   doubleMsg[2]=pose.y;
   doubleMsg[3]=pose.a;
-  int n;
+  //int n;
   if(client_id == 0)
   {
-	n = write(server_newsocketfd,doubleMsg,4*sizeof(double));
+	//n = write(server_newsocketfd,doubleMsg,4*sizeof(double));
   }
   else
   { 
-	n = write(client_socketfd,doubleMsg,4*sizeof(double));
+	//n = write(client_socketfd,doubleMsg,4*sizeof(double));
   } 
 }
 
@@ -449,14 +453,14 @@ void Robot::UpdateAll()
   if( ! Robot::paused )
 		{
 			
-			//FOR_EACH( r, population )
-			//	(*r)->UpdatePose();
-			//pthread_t threads[threadNumber];
-			//int rc;
-			//int i;
+			FOR_EACH( r, population )
+				(*r)->UpdatePose();
+			pthread_t threads[threadNumber];
+			int rc;
+			int i;
 			
 			//update pixel with threads
-			/*
+			
 			for(i=0;i<threadNumber;i++)
 			{
 				rc = pthread_create(&threads[i], NULL, threadUpdatePixel, (void *)i);
@@ -464,7 +468,9 @@ void Robot::UpdateAll()
 			for(i=0;i<threadNumber;i++)
 			{
 				rc = pthread_join(threads[i],NULL);
-			}*/
+			}
+		
+		/*
 		int bound_min = 0;
 		int bound_max = population_size;
 		if(client_id == 0){
@@ -510,16 +516,19 @@ void Robot::UpdateAll()
 				sections[population[r]->getRobotSection()].push_back(population[r]->getRobotNumber());
 			  }
 			counter++;
-		}
+		}/*/
+		
+		int bound_min(0);
+		int bound_max(population_size);
 		//update pixels
-		for(int i = bound_min;i<bound_max;i++)
+		for(i = bound_min;i<bound_max;i++)
 		{
 			//printf("Robot: %d\n",population[i]->getRobotNumber());
-			population[i]->UpdatePixels();
+			//population[i]->UpdatePixels();
 		}
 
 		//update controllers
-		for(int i = bound_min;i<bound_max;i++)
+		for(i = bound_min;i<bound_max;i++)
 		{
 			population[i]->Controller();
 		}
